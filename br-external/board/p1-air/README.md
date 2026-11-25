@@ -188,6 +188,11 @@ framing. After fixing a provisioning failure, retry
 receiver's four-byte `bb_mac_addr_0` array in
 `/var/lib/kestrel-air/peer.json`. The source profile starts Kestrel automatically.
 
+The source profile assigns the SDIO host interrupt and receive worker to CPU1,
+with FIFO priority 30 for the worker, through `/etc/default/ar9311-radio`.
+This keeps radio reply processing responsive alongside camera and encoder work.
+If CPU1 is offline, startup warns and retains the driver's default scheduling.
+
 The launcher shares the recorder's camera lock and supplies board tuning and
 initial white-balance settings. Kestrel currently uses automatic white balance.
 Kestrel, radio provisioning and firmware loading start automatically.

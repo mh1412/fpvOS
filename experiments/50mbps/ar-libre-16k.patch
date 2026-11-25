@@ -1,0 +1,45 @@
+--- a/lib/arlink.c
++++ b/lib/arlink.c
+@@ -78,7 +78,7 @@
+ // so the largest we send anywhere: the goggle's are far smaller anyway, and
+ // on the air unit it applies through arlink.ko as much as through Artosyn's
+ // driver.
+-#define SDIO_FRAME_MAX 10240
++#define SDIO_FRAME_MAX 16384
+ #define WRITE_MAX (SDIO_FRAME_MAX - 19 - 8)      // data bytes in one write
+ static uint32_t write_max = WRITE_MAX;           // ARLINK_WRITE_MAX lowers it
+ #define WRITE_WINDOW 8                           // writes of one call waiting for their replies
+@@ -1101,18 +1101,33 @@
+     if (sockfd < 0 || sockfd >= MAX_SOCKETS || !socks[sockfd].used) return -1;
+     struct sock *s = &socks[sockfd];
+     const uint8_t *p = buf;
++    static _Thread_local uint64_t mark,send_ns,collect_ns,wait_ns,calls,bytes,last,max_gap,max_call;
++    uint64_t entered=mono_ns(),send=0,collect=0;
++    if(!mark)mark=entered;
++    if(last && entered-last>max_gap)max_gap=entered-last;
+     pthread_mutex_lock(&s->wm);
++    uint64_t locked=mono_ns();wait_ns+=locked-entered;
+     batch_flush(sockfd, timeout_ms);
+     struct timespec dl;
+     deadline_in(&dl, timeout_ms);
+     uint32_t done = 0;
+     while (done < len) {
++        uint64_t t=mono_ns();
+         uint32_t sent = batch_send(s, p + done, len - done);
++        uint64_t t1=mono_ns();send+=t1-t;
+         uint32_t took = sent ? batch_collect(sockfd, &dl) : 0;
++        collect+=mono_ns()-t1;
+         done += took;
+         if (!took || took < sent) break;
+     }
+     pthread_mutex_unlock(&s->wm);
++    uint64_t ended=mono_ns();send_ns+=send;collect_ns+=collect;calls++;bytes+=done;
++    if(ended-entered>max_call)max_call=ended-entered;
++    if(ended-mark>=5000000000ull){
++      fprintf(stderr,"AIR-WRITE ns=%llu elapsed_ms=%.3f bytes=%llu calls=%llu send_ms=%.3f collect_ms=%.3f mutex_ms=%.3f max_call_ms=%.3f max_gap_ms=%.3f\n",(unsigned long long)ended,(ended-mark)/1e6,(unsigned long long)bytes,(unsigned long long)calls,send_ns/1e6,collect_ns/1e6,wait_ns/1e6,max_call/1e6,max_gap/1e6);
++      mark=ended;send_ns=collect_ns=wait_ns=calls=bytes=max_call=max_gap=0;
++    }
++    last=ended;
+     return done ? (int)done : -1;
+ }
+ 

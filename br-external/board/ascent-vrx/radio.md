@@ -39,3 +39,11 @@ is incorrect. This profile is not a claim of support for those variants.
 Configuration parsing and package installation can be tested without running
 an RF link. Range and packet-loss performance require comparison on hardware
 at the same channel, width, frame mode, air power and antenna placement.
+
+The board selects SDIO receive CPU 1 and FIFO priority 30 through
+`/etc/default/ar9311-radio`. The host driver places its receive worker and
+MMC host interrupt on that CPU, keeping reception responsive during media
+and USB load. The shared driver leaves scheduling unchanged unless selected.
+Startup falls back to default scheduling if the selected CPU is offline;
+it does not apply the priority alone. Driver detach restores the previous
+interrupt affinity unless it was changed independently in the meantime.

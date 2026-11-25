@@ -7,3 +7,6 @@ calibration_mount=/factory
 # Without usable factory data (S43factory failed, or no valid pwr_offset), start
 # on the board defaults at up to this power (dBm) rather than not at all.
 calibration_fallback_power=14
+# Keep SDIO replies and transmit credits responsive alongside camera processing.
+sdio_rx_cpu=1
+sdio_rx_priority=30

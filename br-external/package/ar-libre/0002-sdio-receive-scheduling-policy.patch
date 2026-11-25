@@ -1,0 +1,177 @@
+Subject: [PATCH] sdio: add opt-in receive CPU and scheduling policy
+
+Allow boards to place the receive worker and MMC host IRQ on a selected CPU
+and set a FIFO priority. Defaults retain existing scheduling. Restore the
+original IRQ affinity on detach unless an administrator changed it later.
+
+Upstream: not submitted
+
+---
+
+--- a/driver/sdio.c
++++ b/driver/sdio.c
+@@ -30,6 +30,12 @@
+ #include <linux/vmalloc.h>
+ #include <linux/sysfs.h>
+ #include <linux/kthread.h>
++#include <linux/cpu.h>
++#include <linux/irq.h>
++#include <linux/interrupt.h>
++#include <linux/platform_device.h>
++#include <linux/sched.h>
++#include <uapi/linux/sched/types.h>
+ 
+ #include "arlink_core.h"
+ 
+@@ -58,6 +64,13 @@
+ #define POLL_MS             100                 /* a missed interrupt costs at most this; stock
+                                                  * never polls, and polling more often disturbs the chip */
+ 
++/* Explicit opt-in: retain existing policy when unset. */
++static int sdio_rx_cpu = -1;
++module_param(sdio_rx_cpu, int, 0444);
++MODULE_PARM_DESC(sdio_rx_cpu, "CPU for SDIO RX worker and platform host IRQ (-1: unchanged)");
++static unsigned int sdio_rx_priority;
++module_param(sdio_rx_priority, uint, 0444);
++MODULE_PARM_DESC(sdio_rx_priority, "SDIO RX FIFO priority (0: unchanged, 1..99: FIFO)");
+ static bool sdio_debug;
+ module_param(sdio_debug, bool, 0644);
+ MODULE_PARM_DESC(sdio_debug, "log the SDIO interrupt and event registers as they are read");
+@@ -74,6 +87,9 @@
+ 	u64 rx_ns;
+ 	wait_queue_head_t rx_wait;
+ 	struct task_struct *rx_task;
++	int policy_irq;
++	bool policy_irq_changed;
++	cpumask_t policy_saved_mask;
+ 	bool gone;
+ 	u8 mbox[2];
+ };
+@@ -412,6 +428,93 @@
+ 	.stream_rx = false,
+ };
+ 
++/* Legacy air kernels lack the exported IRQ/scheduler policy APIs. */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
++/*
++ * The MMC host owns this IRQ. Preserve its prior policy on detach and
++ * do not overwrite an administrator's later affinity change.
++ */
++static void restore_rx_policy(struct arlink_sdio *s)
++{
++	const struct cpumask *current_mask;
++
++	if (!s->policy_irq_changed)
++		return;
++	cpus_read_lock();
++	current_mask = irq_get_affinity_mask(s->policy_irq);
++	if (current_mask && cpumask_equal(current_mask, cpumask_of(sdio_rx_cpu)))
++		irq_set_affinity(s->policy_irq, &s->policy_saved_mask);
++	cpus_read_unlock();
++	s->policy_irq_changed = false;
++}
++
++static int configure_rx_policy(struct arlink_sdio *s)
++{
++	struct device *host = s->func->card->host->parent;
++	struct sched_attr attr = {
++		.size = sizeof(attr),
++		.sched_policy = SCHED_FIFO,
++		.sched_priority = sdio_rx_priority,
++	};
++	const struct cpumask *mask;
++	int ret = 0, irq;
++
++	if (sdio_rx_priority > 99 || sdio_rx_cpu < -1)
++		return -EINVAL;
++	if (sdio_rx_cpu >= 0) {
++		if (!host || host->bus != &platform_bus_type)
++			return -EOPNOTSUPP;
++		irq = platform_get_irq(to_platform_device(host), 0);
++		if (irq < 0)
++			return irq;
++		cpus_read_lock();
++		if (sdio_rx_cpu >= nr_cpu_ids || !cpu_online(sdio_rx_cpu)) {
++			ret = -EINVAL;
++			goto unlock;
++		}
++		mask = irq_get_affinity_mask(irq);
++		if (!mask) {
++			ret = -EOPNOTSUPP;
++			goto unlock;
++		}
++		cpumask_copy(&s->policy_saved_mask, mask);
++		ret = set_cpus_allowed_ptr(s->rx_task, cpumask_of(sdio_rx_cpu));
++		if (ret)
++			goto unlock;
++		ret = irq_set_affinity(irq, cpumask_of(sdio_rx_cpu));
++		if (!ret) {
++			s->policy_irq = irq;
++			s->policy_irq_changed = true;
++		}
++unlock:
++		cpus_read_unlock();
++		if (ret)
++			return ret;
++	}
++	if (sdio_rx_priority) {
++		ret = sched_setattr_nocheck(s->rx_task, &attr);
++		if (ret) {
++			restore_rx_policy(s);
++			return ret;
++		}
++	}
++	if (sdio_rx_cpu >= 0 || sdio_rx_priority)
++		dev_info(&s->func->dev, "RX policy cpu=%d priority=%u host_irq=%d\n",
++			 sdio_rx_cpu, sdio_rx_priority, s->policy_irq);
++	return 0;
++}
++
++#else
++static void restore_rx_policy(struct arlink_sdio *s)
++{
++}
++
++static int configure_rx_policy(struct arlink_sdio *s)
++{
++	return sdio_rx_cpu == -1 && !sdio_rx_priority ? 0 : -EOPNOTSUPP;
++}
++#endif
++
+ static int probe_running(struct sdio_func *func)
+ {
+ 	struct arlink_sdio *s;
+@@ -435,8 +538,17 @@
+ 		kfree(s);
+ 		return -ENOMEM;
+ 	}
++	r = configure_rx_policy(s);
++	if (r) {
++		dev_err(&func->dev, "RX policy unavailable: %d\n", r);
++		kthread_stop(s->rx_task);
++		kfree(s->rx_buf);
++		kfree(s);
++		return r;
++	}
+ 	d = arlink_alloc(&func->dev, &sdio_bus, s);
+ 	if (!d) {
++		restore_rx_policy(s);
+ 		kthread_stop(s->rx_task);
+ 		kfree(s->rx_buf);
+ 		kfree(s);
+@@ -469,6 +581,7 @@
+ 	sdio_release_irq(func);
+ 	sdio_release_host(func);
+ fail:
++	restore_rx_policy(s);
+ 	kthread_stop(s->rx_task);
+ 	sdio_set_drvdata(func, NULL);
+ 	arlink_put(d);
+@@ -500,6 +613,7 @@
+ 		WRITE_ONCE(s->gone, true);
+ 		wake_up(&s->tx_wait);
+ 		kthread_stop(s->rx_task);
++		restore_rx_policy(s);
+ 		arlink_unregister(s->d);
+ 	}
+ 	sdio_claim_host(func);

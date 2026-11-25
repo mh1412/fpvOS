@@ -263,6 +263,8 @@
 
 		mmc0: mmc@1b00000 {
 			compatible = "artosyn,proxima-dw-mshc";
+			/* FIFOTH is programmable; its current threshold is not the FIFO depth. */
+			fifo-depth = <128>;
 			reg = <0 0x01b00000 0 0x1000>;
 			interrupts = <GIC_SPI 48 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&clk150m>, <&mmc_clocks AR9311_CLK_SDMMC0>;
@@ -272,6 +274,7 @@
 
 		mmc1: mmc@1c00000 {
 			compatible = "artosyn,proxima-dw-mshc";
+			fifo-depth = <128>;
 			reg = <0 0x01c00000 0 0x1000>;
 			interrupts = <GIC_SPI 49 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&clk150m>, <&mmc_clocks AR9311_CLK_SDMMC1>;

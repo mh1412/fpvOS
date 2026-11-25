@@ -1,0 +1,3 @@
+# Keep SDIO receive servicing responsive during decoder/display and USB load.
+sdio_rx_cpu=1
+sdio_rx_priority=30

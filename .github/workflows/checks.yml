@@ -111,4 +111,5 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y libjansson-dev
           python3 br-external/package/ar9311-radio/tests/test_calibration.py -v
+          python3 br-external/package/ar9311-radio/tests/test_startup_policy.py -v
           python3 -m py_compile br-external/package/p1-air-radio-config/configure.py

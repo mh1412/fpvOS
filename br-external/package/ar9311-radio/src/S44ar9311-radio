@@ -8,6 +8,8 @@ calibration_base=
 calibration_factory=
 calibration_mount=
 calibration_fallback_power=
+sdio_rx_cpu=
+sdio_rx_priority=
 [ ! -r /etc/default/ar9311-radio ] || . /etc/default/ar9311-radio
 case "$1" in
 	start)
@@ -53,7 +55,28 @@ case "$1" in
 		modprobe gpio-regulator || exit 1
 		modprobe ar9311_radio_pwrseq || exit 1
 		modprobe dw_mci-artosyn || exit 1
-		modprobe arlink fw_name="$firmware" cfg_name="$config" || exit 1
+		set -- "fw_name=$firmware" "cfg_name=$config"
+		if [ -n "$sdio_rx_cpu$sdio_rx_priority" ]; then
+			case "$sdio_rx_cpu:$sdio_rx_priority" in
+				*[!0-9:]*|:*|*:)
+					echo "Radio: invalid receive scheduling configuration" >&2
+					exit 1 ;;
+			esac
+			[ "$sdio_rx_priority" -ge 1 ] && [ "$sdio_rx_priority" -le 99 ] || exit 1
+			# Per-CPU online files are absent when CPU hotplug is disabled.
+			if awk -F, -v cpu="$sdio_rx_cpu" '
+				{ for (i = 1; i <= NF; i++) {
+					n = split($i, range, "-")
+					if (cpu >= range[1] && cpu <= range[n]) found = 1
+				} }
+				END { exit !found }
+				' /sys/devices/system/cpu/online 2>/dev/null; then
+				set -- "$@" "sdio_rx_cpu=$sdio_rx_cpu" "sdio_rx_priority=$sdio_rx_priority"
+			else
+				echo "Radio: receive CPU unavailable; using default scheduling" >&2
+			fi
+		fi
+		modprobe arlink "$@" || exit 1
 		i=0
 		while [ "$i" -lt 20 ]; do
 			if [ -c /dev/arlink0 ]; then

@@ -243,7 +243,8 @@
 	bus-width = <4>;
 	cap-sd-highspeed;
 	cap-sdio-irq;
-	broken-cd;
+	/* The soldered radio has no removable-card detection. */
+	non-removable;
 	no-mmc;
 	no-sd;
 	no-1-8-v;
