@@ -1,3 +1,7 @@
+# Keep SDIO receive servicing responsive during decoder/display and USB load.
+sdio_rx_cpu=1
+sdio_rx_priority=30
+
 # Factory offsets are merged into a RAM-only configuration before loading.
 firmware=open8030.img
 config=p1-goggle-radio.json

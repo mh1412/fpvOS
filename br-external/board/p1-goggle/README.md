@@ -175,6 +175,19 @@ reset; the board DTS enables MMC0 for SDIO. P1 register defaults, pin wiring
 and RF gain tables remain board-specific. The channel and protocol settings
 match the existing fpvOS air/ground configuration.
 
+The soldered radio is marked non-removable. The shared AR9311 controller
+description supplies the 128-word MMC FIFO depth. Board defaults place the
+SDIO receive worker and controller IRQ on CPU1, with FIFO priority 30 for
+the worker, to reduce service delays under media load. Both CPU cores remain
+enabled; startup skips this policy if CPU1 is unavailable. These settings
+preserve the P1-specific RF profile and factory calibration path.
+
+The optional `experiments/50mbps` patches require matching host, radio and
+application builds; they are not enabled by this board profile. Sustained
+50 Mbps was approached in short bench tests with automatic rate adaptation,
+but occasional bitrate backoffs and startup corruption remain. This is not
+a flight-qualified configuration; see the experiment README for constraints.
+
 `S43factory` verifies the original factory partition geometry and read-only
 MTD/UBI state, then mounts `/factory` read-only. `S44ar9311-radio` merges
 `/factory/ar8030_pwr.json` with the board template into
@@ -212,7 +225,11 @@ another board's installer.
 Use `tools/fpvos-update/client.py --board p1-goggle --port <goggles-port>`
 with `info`, `clean`, then `install output/p1-goggle/images/fpvos-p1-goggle.fwu`.
 The installer selects stock bank 0 before writing bank 1, verifies readback,
-and selects bank 1 last. The installed kernel contains a small recovery root
+and selects bank 1 last. Either matched vendor environment/U-Boot pair is
+accepted and preserved, including bank 1 selected by newer stock releases.
+If stock currently occupies bank 1, verify the preserved bank 0 boots and
+select it before installing; the updater refuses to overwrite active stock.
+The installed kernel contains a small recovery root
 that validates and unpacks the full rootfs bundle from userapp1. A missing or
 invalid bundle leaves the USB recovery service running. `clean` enters this
 recovery environment for subsequent updates; `stock` selects the preserved

@@ -33,6 +33,9 @@ class GoggleTests(unittest.TestCase):
         (d/'dtb1').write_bytes(b'\x55' * 0x60000)
         return d
 
+    flash_directory = p1.P1Tests.flash_directory
+    test_either_boot_pair_is_preserved = p1.P1Tests.test_either_boot_pair_is_preserved
+
     def test_select_bank_one_preserves_stock_and_bootloader_selection(self):
         d=self.directory();before=(d/'boot-state').read_bytes()
         self.assertEqual(self.flash(d,'select',1),0)

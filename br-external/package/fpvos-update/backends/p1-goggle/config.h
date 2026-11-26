@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef FPVOS_P1_CONFIG_H
 #define FPVOS_P1_CONFIG_H
-/* Keep the running stock bank 0 and its original bootloader selection. */
+/* Keep stock bank 0 and preserve either matched vendor env/U-Boot pair. */
 #define P1_FPVOS_BANK 1
 #define P1_STOCK_BANK 0
-#define P1_BOOT_BANK 0
+#define P1_BOOT_BANK -1
 #define P1_MODEL "BETAFPV P1 goggles (AR9311)"
 #define P1_COMPATIBLE "betafpv,p1-goggle"
 #define P1_KERNEL_NAME "fpvOS P1 goggles recovery"
